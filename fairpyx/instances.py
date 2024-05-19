@@ -10,6 +10,7 @@ import numpy as np
 from functools import cache
 
 import logging
+
 logger = logging.getLogger(__name__)
 
 
@@ -107,7 +108,9 @@ class Instance:
     {'Alice'}
     """
 
-    def __init__(self, valuations:any, agent_capacities:any=None, agent_entitlements:any=None, item_capacities:any=None, agent_conflicts:any=None, item_conflicts:any=None, agents:list=None, items:list=None):
+    def __init__(self, valuations: any, agent_capacities: any = None, agent_entitlements: any = None,
+                 item_capacities: any = None, agent_conflicts: any = None, item_conflicts: any = None,
+                 agents: list = None, items: list = None):
         """
         Initialize an instance from the given 
         """
@@ -115,18 +118,18 @@ class Instance:
 
         agent_capacity_keys, agent_capacity_func = get_keys_and_mapping(agent_capacities)
         agent_entitlement_keys, agent_entitlement_func = get_keys_and_mapping(agent_entitlements)
-        item_capacity_keys , item_capacity_func  = get_keys_and_mapping(item_capacities)
+        item_capacity_keys, item_capacity_func = get_keys_and_mapping(item_capacities)
 
-        self.agents = agents or agent_value_keys or agent_capacity_keys or agent_entitlement_keys 
+        self.agents = agents or agent_value_keys or agent_capacity_keys or agent_entitlement_keys
         assert (self.agents is not None)
         self.num_of_agents = len(self.agents)
-        self.items  = items  or item_capacity_keys or item_value_keys
+        self.items = items or item_capacity_keys or item_value_keys
         assert (self.items is not None)
         self.num_of_items = len(self.items)
 
         self.agent_capacity = agent_capacity_func or constant_function(len(self.items))
         self.agent_entitlement = agent_entitlement_func or constant_function(1)
-        self.item_capacity  = item_capacity_func  or constant_function(1)
+        self.item_capacity = item_capacity_func or constant_function(1)
         self.agent_item_value = agent_item_value_func
 
         self.agent_conflicts = get_conflicts(agent_conflicts) or constant_function(set())
@@ -134,23 +137,22 @@ class Instance:
 
         # Keep the input parameters, for debug
         self._agent_capacities = agent_capacities
-        self._item_capacities  = item_capacities
-        self._valuations       = valuations
+        self._item_capacities = item_capacities
+        self._valuations = valuations
 
-
-    def agent_bundle_value(self, agent:any, bundle:list[any]):
+    def agent_bundle_value(self, agent: any, bundle: list[any]):
         """
         Return the agent's value for a bundle (a list of items).
         """
-        return sum([self.agent_item_value(agent,item) for item in bundle])
+        return sum([self.agent_item_value(agent, item) for item in bundle])
 
-    def agent_fractionalbundle_value(self, agent:any, bundle:list[any]):
+    def agent_fractionalbundle_value(self, agent: any, bundle: list[any]):
         """
         Return the agent's value for a fractional bundle (a dict mapping items to fractions).
         """
-        return sum([self.agent_item_value(agent,item)*fraction for item,fraction in bundle.items()])
-    
-    def agent_ranking(self, agent:any, prioritized_items:list=[])->dict:
+        return sum([self.agent_item_value(agent, item) * fraction for item, fraction in bundle.items()])
+
+    def agent_ranking(self, agent: any, toBreak: bool = True, prioritized_items: list = []) -> dict:
         """
         Compute a map in which each item is mapped to its ranking: the best item is mapped to 1, the second-best to 2, etc.
 
@@ -158,14 +160,22 @@ class Instance:
              This list is used for tie-breaking, in cases the agent assigns the same value to different items.
         """
         other_items = [item for item in self.items if item not in prioritized_items]
-        valuation = lambda item: self.agent_item_value(agent,item)
+        valuation = lambda item: self.agent_item_value(agent, item)
         sorted_items = sorted(prioritized_items + other_items, key=valuation, reverse=True)
         result = {}
-        for i,item in enumerate(sorted_items):
-            result[item] = i+1
+        for i, item in enumerate(sorted_items):
+            if not toBreak:
+                try:
+                    if i > 0 and self._valuations[agent][sorted_items[i-1]] == self._valuations[agent][item]:
+                        result[item] = result[sorted_items[i-1]]
+                    else: result[item] = i + 1
+                except KeyError:
+                    result[item] = i + 1
+            else:
+                result[item] = i + 1
         return result
-    
-    def map_agent_to_ranking(self, map_agent_to_prioritized_items={})->dict:
+
+    def map_agent_to_ranking(self, map_agent_to_prioritized_items={}) -> dict:
         """
         Compute a map in which each agent is mapped to a dict mapping each item to its ranking.
         For example, if item 'x' is the best item of Alice, then result["Alice"]["x"]==1.
@@ -184,22 +194,22 @@ class Instance:
  * item capacities:  { {item: self.item_capacity(item) for item in self.items} }
  * item conflicts:  { {item: self.item_conflicts(item) for item in self.items} }
  """
-    
+
     @cache
-    def agent_maximum_value(self, agent:any):
+    def agent_maximum_value(self, agent: any):
         """
         Return the maximum possible value of an agent: the sum of the top x items, where x is the agent's capacity.
         """
-        maxvalue = sum(sorted([self.agent_item_value(agent,item) for item in self.items],reverse=True)[0:self.agent_capacity(agent)])
+        maxvalue = sum(sorted([self.agent_item_value(agent, item) for item in self.items], reverse=True)[
+                       0:self.agent_capacity(agent)])
         return maxvalue
 
-
-    def agent_normalized_item_value(self, agent:any, item:any):
-        value = self.agent_item_value(agent,item)
+    def agent_normalized_item_value(self, agent: any, item: any):
+        value = self.agent_item_value(agent, item)
         maxvalue = self.agent_maximum_value(agent)
-        if maxvalue==0 and value>0:
+        if maxvalue == 0 and value > 0:
             raise ValueError(f"agent {agent} for item {item} has value {value}, but max value is {maxvalue}")
-        elif maxvalue==0:
+        elif maxvalue == 0:
             return 0
         else:
             normalized_value = value / maxvalue * 100
@@ -208,69 +218,76 @@ class Instance:
             return normalized_value
 
     @staticmethod
-    def random_uniform(num_of_agents:int, num_of_items:int, 
-               agent_capacity_bounds:tuple[int,int],
-               item_capacity_bounds:tuple[int,int],
-               item_base_value_bounds:tuple[int,int],
-               item_subjective_ratio_bounds:tuple[float,float],
-               normalized_sum_of_values:int,
-               agent_name_template="s{index}", item_name_template="c{index}",
-               random_seed:int=None,
-               ):
+    def random_uniform(num_of_agents: int, num_of_items: int,
+                       agent_capacity_bounds: tuple[int, int],
+                       item_capacity_bounds: tuple[int, int],
+                       item_base_value_bounds: tuple[int, int],
+                       item_subjective_ratio_bounds: tuple[float, float],
+                       normalized_sum_of_values: int,
+                       agent_name_template="s{index}", item_name_template="c{index}",
+                       random_seed: int = None,
+                       ):
         """
         Generate a random instance by drawing values from uniform distributions.
         """
         if random_seed is None:
-            random_seed = np.random.randint(1, 2**31)
+            random_seed = np.random.randint(1, 2 ** 31)
         np.random.seed(random_seed)
         logger.info("Random seed: %d", random_seed)
-        agents  = [agent_name_template.format(index=i+1) for i in range(num_of_agents)]
-        items   = [item_name_template.format(index=i+1) for i in range(num_of_items)]
-        agent_capacities  = {agent: np.random.randint(agent_capacity_bounds[0], agent_capacity_bounds[1]+1) for agent in agents}
-        item_capacities   = {item: np.random.randint(item_capacity_bounds[0], item_capacity_bounds[1]+1) for item in items}
-        base_values = normalized_valuation(random_valuation(num_of_items, item_base_value_bounds), normalized_sum_of_values)
+        agents = [agent_name_template.format(index=i + 1) for i in range(num_of_agents)]
+        items = [item_name_template.format(index=i + 1) for i in range(num_of_items)]
+        agent_capacities = {agent: np.random.randint(agent_capacity_bounds[0], agent_capacity_bounds[1] + 1) for agent
+                            in agents}
+        item_capacities = {item: np.random.randint(item_capacity_bounds[0], item_capacity_bounds[1] + 1) for item in
+                           items}
+        base_values = normalized_valuation(random_valuation(num_of_items, item_base_value_bounds),
+                                           normalized_sum_of_values)
         valuations = {
             agent: dict(zip(items, normalized_valuation(
-                base_values *  random_valuation(num_of_items, item_subjective_ratio_bounds),
+                base_values * random_valuation(num_of_items, item_subjective_ratio_bounds),
                 normalized_sum_of_values
             )))
             for agent in agents
         }
         return Instance(valuations=valuations, agent_capacities=agent_capacities, item_capacities=item_capacities)
-    
 
     @staticmethod
-    def random_szws(num_of_agents:int, num_of_items:int, 
-               agent_capacity:int,
-               supply_ratio:float,         # The ratio: total number of items / total demand. The item capacity is determined by this number; all items have the same capacity.
-               num_of_popular_items:int,   # Items 1,...,num_of_popular_items will be considered "popular", and have a high value for many students.
-               mean_num_of_favorite_items:float,  # For each student, a subset of num_of_favorite_items items out of the popular ones will be selected as "favorite".
-                                                  # num_of_favorite_items is selected at random to be either floor(mean_num_of_favorite_items) or ceil(mean_num_of_favorite_items), so that the mean is mean_num_of_favorite_items.
-               favorite_item_value_bounds:tuple[int,int],    # The value of a favorite course will be selected uniformly at random from this range.
-               nonfavorite_item_value_bounds:tuple[int,int], # The value of a non-favorite course will be selected uniformly at random from this range.
-               normalized_sum_of_values:int,
-               agent_name_template="s{index}", item_name_template="c{index}",
-               random_seed:int=None,
-               ):
+    def random_szws(num_of_agents: int, num_of_items: int,
+                    agent_capacity: int,
+                    supply_ratio: float,
+                    # The ratio: total number of items / total demand. The item capacity is determined by this number; all items have the same capacity.
+                    num_of_popular_items: int,
+                    # Items 1,...,num_of_popular_items will be considered "popular", and have a high value for many students.
+                    mean_num_of_favorite_items: float,
+                    # For each student, a subset of num_of_favorite_items items out of the popular ones will be selected as "favorite".
+                    # num_of_favorite_items is selected at random to be either floor(mean_num_of_favorite_items) or ceil(mean_num_of_favorite_items), so that the mean is mean_num_of_favorite_items.
+                    favorite_item_value_bounds: tuple[int, int],
+                    # The value of a favorite course will be selected uniformly at random from this range.
+                    nonfavorite_item_value_bounds: tuple[int, int],
+                    # The value of a non-favorite course will be selected uniformly at random from this range.
+                    normalized_sum_of_values: int,
+                    agent_name_template="s{index}", item_name_template="c{index}",
+                    random_seed: int = None,
+                    ):
         """
         Generate a random instance with additive utilities, using the process described at:
             Soumalias, Zamanlooy, Weissteiner, Seuken: "Machine Learning-powered Course Allocation", arXiv 2210.00954, subsection 5.1
         NOTE: currently, we do not generate complementarities and substitutabilities. We also do not model reporting mistakes.
         """
         if random_seed is None:
-            random_seed = np.random.randint(1, 2**31)
+            random_seed = np.random.randint(1, 2 ** 31)
         np.random.seed(random_seed)
         logger.info("Random seed: %d", random_seed)
 
         item_capacity = np.round((supply_ratio * agent_capacity * num_of_agents) / num_of_items)
 
-        agents  = [agent_name_template.format(index=i+1) for i in range(num_of_agents)]
-        items   = [item_name_template.format(index=i+1) for i in range(num_of_items)]
+        agents = [agent_name_template.format(index=i + 1) for i in range(num_of_agents)]
+        items = [item_name_template.format(index=i + 1) for i in range(num_of_items)]
 
         valuations = {}
         for agent in agents:
             # copied from https://github.com/marketdesignresearch/Course-Match-Preference-Simulator/blob/main/preference_generator.py
-            if np.random.uniform(0,1) <= mean_num_of_favorite_items - np.floor(mean_num_of_favorite_items):
+            if np.random.uniform(0, 1) <= mean_num_of_favorite_items - np.floor(mean_num_of_favorite_items):
                 num_of_favorite_items = int(np.ceil(mean_num_of_favorite_items))
             else:
                 num_of_favorite_items = int(np.floor(mean_num_of_favorite_items))
@@ -279,18 +296,17 @@ class Instance:
             valuation = np.zeros(num_of_items)
             for item_index in range(num_of_items):
                 value_bounds = favorite_item_value_bounds if item_index in favorite_items else nonfavorite_item_value_bounds
-                valuation[item_index] = np.random.uniform(low=value_bounds[0], high=value_bounds[1]+1)
+                valuation[item_index] = np.random.uniform(low=value_bounds[0], high=value_bounds[1] + 1)
             valuations[agent] = dict(zip(items, normalized_valuation(valuation, normalized_sum_of_values)))
 
         return Instance(valuations=valuations, agent_capacities=agent_capacity, item_capacities=item_capacity)
 
-
     @staticmethod
-    def random_sample(max_num_of_agents:int, max_total_agent_capacity:int,
-        prototype_valuations:dict, prototype_agent_capacities:dict, prototype_agent_conflicts:dict,
-        item_capacities:dict, item_conflicts:dict, 
-        random_seed:int=None,
-        ):
+    def random_sample(max_num_of_agents: int, max_total_agent_capacity: int,
+                      prototype_valuations: dict, prototype_agent_capacities: dict, prototype_agent_conflicts: dict,
+                      item_capacities: dict, item_conflicts: dict,
+                      random_seed: int = None,
+                      ):
         """
         Generate a random instance by sampling values of existing agents.
 
@@ -300,7 +316,7 @@ class Instance:
 
         """
         if random_seed is None:
-            random_seed = np.random.randint(1, 2**31)
+            random_seed = np.random.randint(1, 2 ** 31)
         np.random.seed(random_seed)
         logger.info("Random seed: %d", random_seed)
         prototype_agents = list(prototype_valuations.keys())
@@ -314,7 +330,7 @@ class Instance:
             new_agent_capacity = prototype_agent_capacities[prototype_agent]
             agent_capacities[new_agent] = new_agent_capacity
             if prototype_agent in prototype_agent_conflicts:
-                agent_conflicts[new_agent]  = prototype_agent_conflicts[prototype_agent]
+                agent_conflicts[new_agent] = prototype_agent_conflicts[prototype_agent]
             valuations[new_agent] = prototype_valuations[prototype_agent]
             max_total_agent_capacity -= new_agent_capacity
             max_num_of_agents -= 1
@@ -329,9 +345,9 @@ class Instance:
             prototype_agent = np.random.choice(prototype_agents)
             new_agent = f"random{i}.{prototype_agent}"
             add_agent(new_agent, prototype_agent)
-            if max_total_agent_capacity<=0:
+            if max_total_agent_capacity <= 0:
                 break
-            if max_num_of_agents<=0:
+            if max_num_of_agents <= 0:
                 break
             i += 1
 
@@ -339,9 +355,7 @@ class Instance:
                         item_capacities=item_capacities, item_conflicts=item_conflicts)
 
 
-        
-
-def random_valuation(numitems:int, item_value_bounds: tuple[float,float])->np.ndarray:
+def random_valuation(numitems: int, item_value_bounds: tuple[float, float]) -> np.ndarray:
     """
     >>> r = random_valuation(10, [30, 40])
     >>> len(r)
@@ -349,14 +363,15 @@ def random_valuation(numitems:int, item_value_bounds: tuple[float,float])->np.nd
     >>> all(r>=30)
     True
     """
-    return np.random.uniform(low=item_value_bounds[0], high=item_value_bounds[1]+1, size=numitems)
+    return np.random.uniform(low=item_value_bounds[0], high=item_value_bounds[1] + 1, size=numitems)
 
-def normalized_valuation(raw_valuations:np.ndarray, normalized_sum_of_values:float):
+
+def normalized_valuation(raw_valuations: np.ndarray, normalized_sum_of_values: float):
     raw_sum_of_values = sum(raw_valuations)
-    return  np.round(raw_valuations * normalized_sum_of_values / raw_sum_of_values).astype(int)
+    return np.round(raw_valuations * normalized_sum_of_values / raw_sum_of_values).astype(int)
 
 
-def get_keys_and_mapping(container: any) -> tuple[list,callable]:
+def get_keys_and_mapping(container: any) -> tuple[list, callable]:
     """
     Given a container of any supported type, returns:
     * an iterable of the container's keys;
@@ -399,18 +414,18 @@ def get_keys_and_mapping(container: any) -> tuple[list,callable]:
     elif isinstance(container, np.ndarray):
         keys = range(len(container))
         func = container.__getitem__
-    elif isinstance(container,Number):
-        keys = None    # keys are unknown
+    elif isinstance(container, Number):
+        keys = None  # keys are unknown
         func = constant_function(container)
     elif callable(container):
-        keys = None   # keys are unknown
-        func = container 
+        keys = None  # keys are unknown
+        func = container
     else:
         raise TypeError(f"container {container} of unknown type: {type(container)}")
-    return keys,func
-    
+    return keys, func
 
-def get_keys_and_mapping_2d(container: any) -> tuple[list,callable]:
+
+def get_keys_and_mapping_2d(container: any) -> tuple[list, callable]:
     """
     Given a 2-dimensional container of any supported type, returns:
     * a list of the container's keys at first level;
@@ -459,20 +474,20 @@ def get_keys_and_mapping_2d(container: any) -> tuple[list,callable]:
     """
     if container is None:
         f = k1 = k2 = None
-    elif isinstance(container,dict):
+    elif isinstance(container, dict):
         # f = lambda agent,item: container.get(agent,dict()).get(item,0)
         # f = lambda agent,item: container[agent].get(item,0)
         # f = lambda agent,item: container[agent][item]
-        f = lambda agent,item: \
-            container[agent].get(item,0) if isinstance(container[agent],dict) else container[agent][item]
+        f = lambda agent, item: \
+            container[agent].get(item, 0) if isinstance(container[agent], dict) else container[agent][item]
         k1 = container.keys()
         k2, _ = get_keys_and_mapping(container[next(iter(container))])
-    elif isinstance(container,list):
-        f = lambda agent,item: container[agent][item]
+    elif isinstance(container, list):
+        f = lambda agent, item: container[agent][item]
         k1 = range(len(container))
         k2, _ = get_keys_and_mapping(container[0])
     elif isinstance(container, np.ndarray):
-        f = lambda agent,item: container[agent][item]
+        f = lambda agent, item: container[agent][item]
         k1 = range(container.shape[0])
         k2 = range(container.shape[1])
     elif callable(container):
@@ -480,10 +495,10 @@ def get_keys_and_mapping_2d(container: any) -> tuple[list,callable]:
         k1 = k2 = None
     else:
         raise TypeError(f"agent_item_value {container} of unknown type: {type(container)}")
-    return k1,k2,f
+    return k1, k2, f
 
 
-def get_conflicts(container:any):
+def get_conflicts(container: any):
     """
     Given a container of any supported type, returns a callable function 
     that maps each key to a list of conflicting items.
@@ -495,34 +510,36 @@ def get_conflicts(container:any):
     """
     if container is None:
         func = None
-    elif isinstance(container, dict):   # dict of lists
+    elif isinstance(container, dict):  # dict of lists
         func = lambda x: container.get(x, set())
-    elif isinstance(container, list):   # list of lists
+    elif isinstance(container, list):  # list of lists
         func = container.__getitem__
     elif callable(container):
-        func = container 
+        func = container
     else:
         raise TypeError(f"container {container} of unknown type: {type(container)}")
     return func
-    
+
 
 Instance.logger = logger
 
-def constant_function(constant_value)->callable:
-    return lambda key:constant_value
+
+def constant_function(constant_value) -> callable:
+    return lambda key: constant_value
 
 
 if __name__ == "__main__":
     import doctest, sys
+
     logger.addHandler(logging.StreamHandler(sys.stdout))
     logger.setLevel(logging.INFO)
 
-    print( "\n", doctest.testmod(), "\n")
+    print("\n", doctest.testmod(), "\n")
 
     random_instance = Instance.random_uniform(
-        num_of_agents=5, num_of_items=3, 
-        agent_capacity_bounds=[2,6], item_capacity_bounds=[30,50], 
-        item_base_value_bounds=[1,200], item_subjective_ratio_bounds=[0.5,1.5],
+        num_of_agents=5, num_of_items=3,
+        agent_capacity_bounds=[2, 6], item_capacity_bounds=[30, 50],
+        item_base_value_bounds=[1, 200], item_subjective_ratio_bounds=[0.5, 1.5],
         # agent_name_template="agent{index}", item_name_template="item{index}",
         normalized_sum_of_values=1000)
     print("agents: ", random_instance.agents)
@@ -530,13 +547,13 @@ if __name__ == "__main__":
     print("valuations: ", random_instance._valuations, "\n")
 
     random_instance = Instance.random_szws(  # SZWS experiment:
-        num_of_agents=10, num_of_items=10, 
-        agent_capacity=5, 
-        supply_ratio = 1.25,      # 1.25, 1.5
-        num_of_popular_items=6,   # 6, 9
+        num_of_agents=10, num_of_items=10,
+        agent_capacity=5,
+        supply_ratio=1.25,  # 1.25, 1.5
+        num_of_popular_items=6,  # 6, 9
         mean_num_of_favorite_items=4,  # ?
-        favorite_item_value_bounds=[100,200],
-        nonfavorite_item_value_bounds=[1,100],
+        favorite_item_value_bounds=[100, 200],
+        nonfavorite_item_value_bounds=[1, 100],
         normalized_sum_of_values=1000)
     print("agents: ", random_instance.agents)
     print("items: ", random_instance.items)
@@ -545,16 +562,16 @@ if __name__ == "__main__":
 
     random_instance = Instance.random_sample(
         max_num_of_agents=8, max_total_agent_capacity=1000,
-        prototype_agent_capacities={"Alice": 5, "Bob": 6, "Chana": 7}, prototype_valuations={"Alice": {"c1": 55, "c2": 66, "c3": 77}, "Bob": {"c1": 77, "c2": 66, "c3": 55}, "Chana": {"c1": 66, "c2": 77, "c3": 55}},
+        prototype_agent_capacities={"Alice": 5, "Bob": 6, "Chana": 7},
+        prototype_valuations={"Alice": {"c1": 55, "c2": 66, "c3": 77}, "Bob": {"c1": 77, "c2": 66, "c3": 55},
+                              "Chana": {"c1": 66, "c2": 77, "c3": 55}},
         prototype_agent_conflicts={"Alice": ["c1"]},
         item_capacities={"c1": 5, "c2": 6, "c3": 7}, item_conflicts={})
     print("agents: ", random_instance.agents)
     print("items: ", random_instance.items)
     print("valuations: ", dict(random_instance._valuations), "\n")
 
-
-    # Test the cache    
+    # Test the cache
     # print(random_instance.agent_maximum_value("s1"))
     # print(random_instance.agent_maximum_value("s2"))
     # print(random_instance.agent_maximum_value("s1"))
-
