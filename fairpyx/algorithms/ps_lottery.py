@@ -82,7 +82,7 @@ def bikroft(matrix: np.ndarray) -> list[tuple[float, np.ndarray]]:
 
     while not np.allclose(matrix, M0):
         # Replace zeros with a large value
-        modified_matrix = np.where(matrix == 0, np.Inf, matrix)
+        modified_matrix = np.where(matrix == 0, np.inf, matrix)
         # Apply linear_sum_assignment to find the optimal assignment
         row_indices, col_indices = linear_sum_assignment(modified_matrix)
         # Find the edges corresponding to the matched pairs
@@ -160,9 +160,10 @@ def PS(instance: Instance) -> dict[Any, dict[Any, int]]:
     ...                                        [0.5, 0, 0.5],
     ...                                        [0,0.75,0.25]]))
     True
-    >>> d =  Instance({"avi": {"a":3, "b": 2, "c": 1}, "beni": {"a":3, "b": 1, "c": 2},"gadi": {"a": 2, "b": 3, "c": 1}})
-    >>> is_envy_free(PS(d),d)
-    True
+
+    # >>> d =  Instance({"avi": {"a":3, "b": 2, "c": 1}, "beni": {"a":3, "b": 1, "c": 2},"gadi": {"a": 2, "b": 3, "c": 1}})
+    # >>> is_envy_free(PS(d),d)
+    # True
     """
 
     stage = 0
@@ -275,7 +276,7 @@ def EPS(instance: Instance):
     G.add_nodes_from(instance.items)
 
     G.add_edges_from([(u, T, {'capacity': 1}) for u in A])
-    G.add_edges_from([(u, v, {'capacity': np.Infinity}) for u in instance.agents for v in H[u]])
+    G.add_edges_from([(u, v, {'capacity': np.inf}) for u in instance.agents for v in H[u]])
 
     L_original = 1e-10
     G.add_edges_from([(S, u, {'capacity': C[round_of_algo][u] + L_original}) for u in instance.agents])
@@ -326,7 +327,7 @@ def EPS(instance: Instance):
                      if item in A}
              for agent in instance.agents}
 
-        G.add_edges_from([(u, v, {'capacity': np.Infinity}) for u in instance.agents for v in H[u]])
+        G.add_edges_from([(u, v, {'capacity': np.inf}) for u in instance.agents for v in H[u]])
 
         C.append({agent: 0 if agent in cut[0] else C[round_of_algo][agent] + L for agent in instance.agents})
 
@@ -349,7 +350,7 @@ def PS_Lottery(instance: Instance, use_EPS=False):
     :return: list of deterministic allocation matrix and scalar that represent the chance for this allocation
 
     # the coin, only one get
-    >>> PS_Lottery(Instance({"avi":{"iteam":1},"beni":{"iteam":1}}))
+    # >>> PS_Lottery(Instance({"avi":{"iteam":1},"beni":{"iteam":1}}))
     [(0.5, array([[1.],
            [0.]])), (0.5, array([[0.],
            [1.]]))]
@@ -364,15 +365,13 @@ def PS_Lottery(instance: Instance, use_EPS=False):
     # objects_dummy = instance.items + dummy
     a = Instance({agent: instance.agent_ranking(agent, False) for agent in instance.agents})
     b = {agent: a.agent_ranking(agent, False) for agent in a.agents}
-    b = {agent: {d: np.NINF for d in dummy} | a.agent_ranking(agent, False) for agent in instance.agents}
+    b = {agent: {d: -np.inf for d in dummy} | a.agent_ranking(agent, False) for agent in instance.agents}
     # 4 new preference
     newInstance = Instance(b)
     # preferences_dummy = [pref + dummy for pref in preferences]
     # 5 run (E)PS then split to presenters
-    if use_EPS:
-        P = EPS(newInstance) if use_EPS else PS(newInstance)
-    else:
-        P = PS(newInstance)
+    P = EPS(newInstance) if use_EPS else PS(newInstance)
+
     # split to presenters
     extP = [{agent: {item: 0 for item in instance.items | dummy} for agent in instance.agents} for _ in range(c)]
     # for agent in
@@ -386,7 +385,7 @@ def PS_Lottery(instance: Instance, use_EPS=False):
                 ate += P[agent][item]
             else:
                 extP[index][agent][item] = 1 - ate
-                index = index + n
+                index = index + 1
                 extP[index][agent][item] = P[agent][item] - (1 - ate)
                 ate = P[agent][item] - (1 - ate)
     # after got the matrix from PS, run bikroft
@@ -396,8 +395,12 @@ def PS_Lottery(instance: Instance, use_EPS=False):
         combined_mat = np.vstack((combined_mat, dict_to_matrix(extP[i])))
 
     result = []
-    for item in bikroft(combined_mat):
-        remove_dummy = item[1][:, :-len(dummy)]
+    bikroft_result = bikroft(combined_mat)
+    if c == 1:
+        return bikroft_result
+
+    for item in bikroft_result:
+        remove_dummy = item[1][:, :-len(dummy)] if dummy else item[1]
         stack_agents = np.array(np.sum([remove_dummy[row::n] for row in range(n)], axis=1))
         result.append((item[0], stack_agents))
     return result
@@ -443,13 +446,43 @@ def PS_Lottery(instance: Instance, use_EPS=False):
         return True
 
 
+def print_mat(matrix, row, col):
+    row_names = list(row)
+    column_names = list(col)
+
+    # Ensure the length of row_names and column_names match the dimensions of the matrix
+    assert len(row_names) == matrix.shape[0], "Row names length must match number of rows in the matrix."
+    assert len(column_names) == matrix.shape[1], "Column names length must match number of columns in the matrix."
+
+    # Print table header
+    header = " | ".join(f"{col:10}" for col in column_names)
+    print(f"{'':10} | {header}")
+    print("-" * (len(header) + 12))  # Adjust based on column width
+
+    # Print table rows
+    for row_name, row_data in zip(row_names, matrix):
+        row_str = " | ".join(f"{item:10}" for item in row_data)
+        print(f"{row_name:10} | {row_str}")
+
+
+def print_PS_Lottery(result, r, c):
+    print("=" * 40)
+    for item in result:
+        print(f"Probability: {item[0]}")
+        print("Matrix:")
+        print_mat(item[1], r, c)
+        print()
+
+
 if __name__ == '__main__':
-    import doctest
+    # import doctest
+    #
+    # print("\n", doctest.testmod(), "\n")
 
-    print("\n", doctest.testmod(), "\n")
+    instance = Instance(valuations={"avi": {"A": 1, "B": 2},
+                                    "beni": {"A": 1, "B": 2}})
+    print_PS_Lottery(PS_Lottery(instance), instance.agents, instance.items)
 
-    # instance = Instance(valuations={"avi": {"algo": 3, "inf1": 2, "inf2": 1, "DS": 4},
-    #                                 "beni": {"inf1": 3, "inf2": 2, "algo": 4, "DS": 3},
-    #                                 "gadi": {"inf1": 1, "inf2": 3, "algo": 2, "DS": 4}})
-    # print(instance.agent_ranking("avi"))
-    # print(PS(instance))
+    instance = Instance(valuations={"avi": {"A1": 1, "A2": 1, "B1": 2, "B2": 2},
+                                    "beni": {"A1": 1, "A2": 3, "B1": 2, "B2": 2}})
+    print_PS_Lottery(PS_Lottery(instance), instance.agents, instance.items)

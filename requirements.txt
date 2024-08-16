@@ -5,7 +5,7 @@ cvxpy_base>=1.1.17
 # cmake
 # matplotlib
 # repackage
-# pytest
+pytest
 # cvxpy_leximin>=0.4.4
 # prtpy>=0.7.0
 # more_itertools
